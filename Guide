@@ -1,0 +1,481 @@
+https://partner.cloudskillsboost.google/focuses/14665?parent=catalog
+
+Configure environment variables
+Configure environment variables that will be used in the setup and installation commands.
+
+export PROJECT_ID=$(gcloud config get-value project)
+export PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} \
+    --format="value(projectNumber)")
+export CLUSTER_NAME=central
+export CLUSTER_ZONE=us-central1-b
+export WORKLOAD_POOL=${PROJECT_ID}.svc.id.goog
+export MESH_ID="proj-${PROJECT_NUMBER}"
+Copied!
+WORKLOAD_POOL will be used to enable Workload Identity, which is the recommended way to safely access Google Cloud services from GKE applications.
+MESH_ID will be used to set the mesh_id label on the cluster, which is required for metrics to get displayed on the Anthos Service Mesh Dashboard in the Cloud Console.
+Verify sufficient permissions
+In Cloud Shell, verify that your user account has the Owner role assigned.
+
+gcloud projects get-iam-policy $PROJECT_ID \
+    --flatten="bindings[].members" \
+    --filter="bindings.members:user:$(gcloud config get-value core/account 2>/dev/null)"
+Copied!
+Output (do not copy)
+
+---
+bindings:
+  members: user:student-xx-xxxx@qwiklabs.net
+  role: roles/owner
+...
+Note: Your student user also possesses viewer privileges.
+
+To complete setup, you need the permissions associated with these roles:
+Project Editor
+Kubernetes Engine Admin
+Project IAM Admin
+GKE Hub Admin
+Service Account Admin
+Service Account key Admin
+If you have the Owner role, you have all these permissions and more, so you're ready to proceed.
+Set up your GKE cluster
+Create the cluster
+Now run the following command in Cloud Shell to create the Kubernetes cluster central:
+
+gcloud config set compute/zone ${CLUSTER_ZONE}
+gcloud beta container clusters create ${CLUSTER_NAME} \
+    --machine-type=n1-standard-4 \
+    --num-nodes=4 \
+    --workload-pool=${WORKLOAD_POOL} \
+    --enable-stackdriver-kubernetes \
+    --subnetwork=default \
+    --release-channel=regular \
+    --labels mesh_id=${MESH_ID}
+Copied!
+Output (do not copy)
+
+NAME     ... STATUS
+central  ... RUNNING
+It will take several minutes for cluster creation to complete.
+
+After your cluster finishes creating, run this command to ensure you have the cluster-admin role on your cluster:
+
+kubectl create clusterrolebinding cluster-admin-binding   --clusterrole=cluster-admin   --user=$(whoami)@qwiklabs.net
+Copied!
+Prepare to install Anthos Service Mesh
+Google provides a tool, asmcli, which allows you to install or upgrade Anthos Service Mesh. If you let it, asmcli will configure your project and cluster as follows:
+
+Grant you the required Identity and Access Management (IAM) permissions on your Google Cloud project.
+Enable the required Google APIs on your Cloud project.
+Set a label on the cluster that identifies the mesh.
+Create a service account that lets data plane components, such as the sidecar proxy, securely access your project's data and resources.
+Register the cluster to the fleet if it isn't already registered.
+You will use asmcli to install Anthos Service Mesh on your cluster.
+
+Download the version that installs Anthos Service Mesh 1.12.0 to the current working directory:
+
+curl https://storage.googleapis.com/csm-artifacts/asm/asmcli_1.12 > asmcli
+Copied!
+Make the script executable:
+
+chmod +x asmcli
+Copied!
+Validate Anthos Service Mesh
+You can run asmcli validate to make sure that your project and cluster are setup as required to install Anthos Service Mesh. With this option, asmcli doesn't make any changes to your project or cluster, and it doesn't install Anthos Service Mesh.
+
+asmcli validates that:
+
+Your environment has the required tools.
+The cluster meets the minimum requirements.
+You have the required permissions on the specified project.
+The project has all the required Google APIs enabled.
+Run the following command to validate your configuration and download the installation file and asm package to the OUTPUT_DIR directory.
+
+./asmcli validate \
+  --project_id $PROJECT_ID \
+  --cluster_name $CLUSTER_NAME \
+  --cluster_location $CLUSTER_ZONE \
+  --fleet_id $PROJECT_ID \
+  --output_dir ./asm_output
+Copied!
+On success, asmcli outputs the following:
+
+asmcli: Setting up necessary files...
+asmcli: Using asm_kubeconfig as the kubeconfig...
+asmcli: Checking installation tool dependencies...
+asmcli: Fetching/writing GCP credentials to kubeconfig file...
+asmcli: Verifying connectivity (10s)...
+asmcli: kubeconfig set to asm_kubeconfig
+asmcli: using context gke_example-project-12345_us-central1_cluster-2
+asmcli: Getting account information...
+asmcli: Downloading ASM..
+asmcli: Downloading ASM kpt package...
+fetching package "/asm" from "https://github.com/GoogleCloudPlatform/anthos-service-mesh-packages" to "asm"
+asmcli: Checking required APIs...
+asmcli: Checking for project example-project-12345...
+asmcli: Reading labels for us-central1/cluster-2...
+asmcli: Checking for istio-system namespace...
+asmcli: Confirming node pool requirements for example-project-12345/us-central1/cluster-2...
+asmcli: Checking Istio installations...
+asmcli: [WARNING]: There is no way to validate that the meshconfig API has been initialized.
+asmcli: [WARNING]: This needs to happen once per GCP project. If the API has not been initialized
+asmcli: [WARNING]: for example-project-12345, please re-run this tool with the --enable_gcp_components
+asmcli: [WARNING]: flag. Otherwise, installation will succeed but Anthos Service Mesh
+asmcli: [WARNING]: will not function correctly.
+asmcli: Successfully validated all requirements to install ASM.
+This lab will provide the necessary flags to handle the warnings from the validation command.
+Install Anthos Service Mesh
+The following command will install Anthos Service Mesh. The --enable_all flag allows the script to enable the required Google APIs, set Identity and Access Management permissions, and make the required updates to your cluster, which includes enabling GKE Workload Identity.
+
+./asmcli install \
+  --project_id $PROJECT_ID \
+  --cluster_name $CLUSTER_NAME \
+  --cluster_location $CLUSTER_ZONE \
+  --fleet_id $PROJECT_ID \
+  --output_dir ./asm_output \
+  --enable_all \
+  --option legacy-default-ingressgateway \
+  --ca mesh_ca \
+  --enable_gcp_components
+Copied!
+Click Check my progress to verify the objective.
+Assessment Completed!
+Install Anthos Service Mesh
+Assessment Completed!
+
+Install an Ingress Gateway
+Anthos Service Mesh gives you the option to deploy and manage gateways as part of your service mesh. A gateway describes a load balancer operating at the edge of the mesh receiving incoming or outgoing HTTP/TCP connections. Gateways are Envoy proxies that provide you with fine-grained control over traffic entering and leaving the mesh.
+
+Create a namespace for the ingress gateway if you don't already have one. Gateways are user workloads, and as a best practice, they shouldn't be deployed in the control plane namespace.
+
+GATEWAY_NS=istio-gateway
+kubectl create namespace $GATEWAY_NS
+Copied!
+Enable auto-injection on the gateway by applying a revision label on the gateway namespace. The revision label is used by the sidecar injector webhook to associate injected proxies with a particular control plane revision.
+
+Use the following command to locate the revision label on istiod:
+
+kubectl get deploy -n istio-system -l app=istiod -o \
+jsonpath={.items[*].metadata.labels.'istio\.io\/rev'}'{"\n"}'
+Copied!
+Store that value in an environment variable:
+
+REVISION=$(kubectl get deploy -n istio-system -l app=istiod -o \
+jsonpath={.items[*].metadata.labels.'istio\.io\/rev'}'{"\n"}')
+Copied!
+Apply the revision label to the namespace. In the following command, REVISION is the value of the istiod revision label that you noted in the previous step.
+
+kubectl label namespace $GATEWAY_NS \
+istio.io/rev=$REVISION --overwrite
+Copied!
+Change to the directory that you specified in --output_dir.
+
+cd ~/asm_output
+Copied!
+You can deploy the example ingress gateway configuration located in the samples/gateways/istio-ingressgateway/ directory as is, or modify it as needed:
+
+kubectl apply -n $GATEWAY_NS \
+  -f samples/gateways/istio-ingressgateway
+Copied!
+Enable Sidecar Injection
+Anthos Service Mesh uses sidecar proxies to enhance network security, reliability, and observability. With Anthos Service Mesh, these functions are abstracted away from an application's primary container and implemented in a common out-of-process proxy delivered as a separate container in the same Pod.
+
+Before you deploy workloads, make sure to configure sidecar proxy injection so that Anthos Service Mesh can monitor and secure traffic.
+
+To enable auto-injection, apply the revision label and remove the istio-injection label if it exists.
+
+In the following command, you specify the namespace, default, where you want to enable auto-injection, and REVISION is the revision label you noted in the previous step:
+
+kubectl label namespace default istio-injection- istio.io/rev=$REVISION --overwrite
+Copied!
+You can ignore the message "istio-injection" not found in the output. That means that the namespace didn't previously have the istio-injection label, which you should expect in new installations of Anthos Service Mesh or new deployments.
+Note: Sidecar proxy injection is now enabled for future workloads.
+
+If this cluster had already been running workloads, you would need to restart the pods to re-trigger auto injection.
+
+Deploy Bookinfo, an Istio-enabled multi-service application
+In this task, you will set up the Bookinfo sample microservices application and explore the app.
+
+Bookinfo Overview
+Now that ASM is configured and verified, you can deploy one of the sample applications provided with the installation — BookInfo. This is a simple mock bookstore application made up of four microservices - all managed using Istio. Each microservice is written in a different language, to demonstrate how you can use Istio in a multi-language environment, without any changes to code.
+
+The microservices are:
+
+productpage: calls the details and reviews microservices to populate the page.
+details: contains book information.
+reviews: contains book reviews. It also calls the ratings microservice.
+ratings: contains book ranking information that accompanies a book review.
+There are 3 versions of the reviews microservice:
+
+Reviews v1 doesn't call the ratings service.
+Reviews v2 calls the ratings service and displays each rating as 1 - 5 black stars.
+Reviews v3 calls the ratings service and displays each rating as 1 - 5 red stars.
+The end-to-end architecture of the application looks like this:
+
+Bookinfo Architecture
+
+You can find the source code and all the other files used in this example in the Istio samples/bookinfo directory.
+
+Deploy Bookinfo
+Look at the .yaml which describes the bookInfo application:
+
+cd istio-1.12.7-asm.2
+cat samples/bookinfo/platform/kube/bookinfo.yaml
+Copied!
+Look for containers to see that each Deployment, has one container, for each version of each service in the Bookinfo application.
+
+In Cloud Shell, use the following command to inject the proxy sidecar along with each application Pod that is deployed.
+
+kubectl apply -f samples/bookinfo/platform/kube/bookinfo.yaml
+Copied!
+Istio uses an extended version of the open-source Envoy proxy, a high-performance proxy developed in C++, to mediate all inbound and outbound traffic for all services in the service mesh.
+
+Istio leverages Envoy's many built-in features including dynamic service discovery, load balancing, TLS termination, HTTP/2 & gRPC proxying, circuit breakers, health checks, staged rollouts with %-based traffic split, fault injection, and rich metrics.
+
+Output (do not copy)
+
+service/details created
+serviceaccount/bookinfo-details created
+deployment.apps/details-v1 created
+service/ratings created
+serviceaccount/bookinfo-ratings created
+deployment.apps/ratings-v1 created
+service/reviews created
+serviceaccount/bookinfo-reviews created
+deployment.apps/reviews-v1 created
+deployment.apps/reviews-v2 created
+deployment.apps/reviews-v3 created
+service/productpage created
+serviceaccount/bookinfo-productpage created
+deployment.apps/productpage-v1 created
+Click Check my progress to verify the objective.
+Assessment Completed!
+Deploy the BookInfo application
+Assessment Completed!
+
+Enable external access using an Istio Ingress Gateway
+Now that the Bookinfo services are up and running, you need to make the application accessible from outside of your Kubernetes cluster, e.g. from a browser. An Istio Gateway is used for this purpose.
+
+Look at the .yaml which describes the configuration for the application ingress gateway.
+
+cat samples/bookinfo/networking/bookinfo-gateway.yaml
+Copied!
+Look for the Gateway and VirtualService mesh resources which get deployed. The Gateway exposes services to users outside the service mesh, and allows Istio features such as monitoring and route rules to be applied to traffic entering the cluster.
+
+Configure the ingress gateway for the application, which exposes an external IP you will use later:
+
+kubectl apply -f samples/bookinfo/networking/bookinfo-gateway.yaml
+Copied!
+Output (do not copy)
+
+gateway.networking.istio.io/bookinfo-gateway created
+virtualservice.networking.istio.io/bookinfo created
+Verify the Bookinfo deployments
+Confirm that the application has been deployed correctly, review services, pods, and the ingress gateway:
+
+kubectl get services
+Copied!
+Output (do not copy)
+
+NAME          TYPE        ...
+details       ClusterIP   ...
+kubernetes    ClusterIP   ...
+productpage   ClusterIP   ...
+ratings       ClusterIP   ...
+reviews       ClusterIP   ...
+Review running application pods:
+
+kubectl get pods
+Copied!
+Output (do not copy)
+
+NAME                              READY   STATUS    RESTARTS   AGE
+details-v1-79f774bdb9-6l54w       1/1     Running   0          101s
+productpage-v1-6b746f74dc-4xccm   1/1     Running   0          100s
+ratings-v1-b6994bb9-7g4z2         1/1     Running   0          100s
+reviews-v1-545db77b95-hkh9p       1/1     Running   0          100s
+reviews-v2-7bf8c9648f-cmsxj       1/1     Running   0          100s
+reviews-v3-84779c7bbc-8b8qp       1/1     Running   0          100s
+You may need to re-run this command until you see that all six pods are in Running status.
+
+Confirm that the Bookinfo application is running by sending a curl request to it from some Pod, within the cluster, for example from ratings:
+
+kubectl exec -it $(kubectl get pod -l app=ratings \
+    -o jsonpath='{.items[0].metadata.name}') \
+    -c ratings -- curl productpage:9080/productpage | grep -o "<title>.*</title>"
+Copied!
+Output (do not copy)
+
+<title>Simple Bookstore App</title>
+Confirm the ingress gateway has been created.
+
+kubectl get gateway
+Copied!
+Output (do not copy)
+
+NAME               AGE
+bookinfo-gateway   20m
+Get the external IP address of the ingress gateway:
+
+kubectl get svc istio-ingressgateway -n istio-system
+Copied!
+Output (do not copy)
+
+NAME                   TYPE           ...   EXTERNAL-IP  ...
+istio-ingressgateway   LoadBalancer   ...   34.72.220.30 ...
+In this example, the external IP of the ingress gateway is 34.72.220.30.
+
+Now run the following command, replacing [EXTERNAL-IP] with the external IP that was outputted from the previous command:
+
+export GATEWAY_URL=[EXTERNAL-IP]
+Copied!
+Check that the Bookinfo app is running by sending a curl request to it from outside the cluster:
+
+curl -I http://${GATEWAY_URL}/productpage
+Copied!
+Output (do not copy)
+
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+content-length: 4183
+server: istio-envoy
+...
+Use the Bookinfo application
+Try the application in your Web browser
+Point your browser to http://[$GATEWAY_URL]/productpage to see the BookInfo web page. Don't forget to replace [$GATEWAY_URL] with your working external IP address.
+
+Bookinfo Product Page
+
+Refresh the page several times.
+
+Notice how you see three different versions of reviews, since we have not yet used Istio to control the version routing.
+
+There are three different book review services being called in a round-robin style:
+
+no stars
+black stars
+red stars
+Switching among the three is normal Kubernetes routing/balancing behavior.
+
+Generate a steady background load
+Run the siege utility to simulate traffic to Bookinfo.
+
+In Cloud Shell, install siege.
+
+Siege is a utility for generating load against Web sites.
+
+sudo apt install siege
+Copied!
+Use siege to create traffic against your services.
+
+siege http://${GATEWAY_URL}/productpage
+Copied!
+Evaluate service performance using the Anthos Service Mesh dashboard
+Gather data from the Services table view.
+In the Console, go to Navigation menu > Anthos > Service Mesh.
+
+On the bottom half of the window, you will see a Service section.
+
+How many services are listed?
+
+Click on the productpage service to drill down and see more details.
+
+productpage.png
+
+Note the summary at the top detailing current requests/second, error rates, latencies, and resource usage.
+
+If you don't see Requests > 0, try exiting and re-entering the productpage service after a few minutes.
+
+On the left side of the window, click on the Metrics option. Explore the different graphs and their breakdown options.
+
+What is the current request rate, and how has it changed over time?
+What is the current error rate, and how has it changed over time?
+What latencies do you see charted?
+What is the median request size?
+What is median response size?
+What is the aggregate cpu usage?
+Click on the Connected Services option from the left side.
+
+This lists other services that make inbound requests of the productpage, and services the productpage makes outbound requests to.
+
+What services make calls to the productpage service?
+What services does the productpage service call?
+Is mTLS enforced on inter-service calls?
+Note: The ratings service does not normally send requests to the productpage service. The ratings service is shown here because you used the ratings service to issue a test request as part of this lab.
+Return to the Anthos Service Mesh dashboard by clicking on the Anthos Service Mesh logo in the upper left corner.
+
+service-mesh
+
+At this time, you can explore or drill down on other services.
+
+The top section of the dashboard shows information about Service Level Objectives (SLOs) and Alerts.
+
+SLOs are targets for Service Level Indicators (SLIs); they embody your definition of how well a service should perform. An example SLO would be 99.9% of hourly requests return a 200 response. You might define an alerting policy that pages on-call staff when your service is failing to meet its SLOs
+
+Look for other labs where you can define and test SLOs!
+
+Use the Topology view to better visualize your mesh
+On the Anthos Service Mesh dashboard, click on the TOPOLOGY link in the upper-right corner.
+
+topology
+
+Here you may need to wait few minutes for the topology graph to appear.
+
+Rearrange the nodes in the graph until you can easily visualize the relationships between services and workloads.
+
+Remember, external requests start at productpage. You can scroll back and study the Bookinfo architecture diagram at the Bookinfo Overview.
+
+Your drawing might look something like this:
+
+Service Mesh
+
+You may need to click on Expand to see all the nodes.
+Click on the productpage service node.
+
+You should see a service details card:
+
+Service Mesh
+
+How many requests per second is this service receiving?
+What are the median and 99% latencies?
+Now, hover over each of the service nodes and notice edge stats.
+
+How many requests/second is the productpage service receiving, and from where?
+How many requests per second is the service forwarding to the productpage-v1 workload?
+You should see traffic details like this:
+
+Service Mesh
+
+Drill down on one of the workloads until you can see the deployment, the replica set, and the Pods.
+
+It should look something like this:
+
+Service Mesh
+
+
+What is Istio?
+
+An open source framework for connecting, securing, and managing microservices
+
+A managed, production-ready environment for deploying containerized applications
+
+Software libraries that you build into your application to interact with the outside world
+
+A package manager for Kubernetes
+
+Congratulations!
+In this lab, you deployed a GKE cluster, Anthos Service Mesh, and an Istio-enabled application. You also used the Anthos Service Mesh dashboard to better understand the service performance and topology of your application.
+
+Finish Your Quest
+anthos-badge.png
+
+This self-paced lab is part of the Anthos Service Mesh. A Quest is a series of related labs that form a learning path. Completing this Quest earns you the badge above, to recognize your achievement. You can make your badge public and link to them in your online resume or social media account. Enroll in this Quest and get immediate completion credit if you've taken this lab. See other available Quests.
+
+Take Your Next Lab
+Traffic Management with Anthos Service Mesh
+
+Managing Policies and Security with Istio
+
+Next Steps / Learn More
+Read more about Istio Installation Configuration Profiles
+Review more Bookinfo Application sample details.
+Study more details and steps to configure Cloud Monitoring in the Kubernetes Engine Monitoring docs.
