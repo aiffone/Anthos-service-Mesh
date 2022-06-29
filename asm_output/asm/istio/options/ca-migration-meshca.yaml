@@ -1,0 +1,15 @@
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  values:
+    pilot:
+      env:
+        ENABLE_CA_SERVER: false
+        ISTIO_MULTIROOT_MESH: true
+  meshConfig:
+    defaultConfig:
+      proxyMetadata:
+        PROXY_CONFIG_XDS_AGENT: "true"
+    trustDomainAliases: # {"$ref":"#/definitions/io.k8s.cli.setters.anthos.servicemesh.trustDomainAliases"}
+    - "qwiklabs-gcp-03-55df0b337d05.svc.id.goog"
+    - "qwiklabs-gcp-03-55df0b337d05.hub.id.goog"

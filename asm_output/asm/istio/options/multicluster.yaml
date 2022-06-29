@@ -1,0 +1,8 @@
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  values:
+    global:
+      multiCluster:
+        # Provided to ensure a human readable name rather than a UUID.
+        clusterName: "cn-qwiklabs-gcp-03-55df0b337d05-us-central1-b-central" # {"$ref":"#/definitions/io.k8s.cli.substitutions.cluster-name"}
